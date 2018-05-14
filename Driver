@@ -1,0 +1,137 @@
+import pymssql
+
+class Table:
+    def __init__(self, name, columns):
+        self.table_name = name
+        self.columns = columns
+
+    def buildCreateScript(self):
+        output = 'CREATE TABLE ' + self.table_name + '(\n'
+        for i in range(len(self.columns)):
+            end_flag = 0
+            if (i == len(self.columns) - 1):
+                end_flag = 1
+            column = self.columns[i]
+            output += '\t' + column.column_name + ' ' + column.data_type + ' '
+            if column.length != None:
+                if column.precision == None:
+                    output += '(' + str(column.length) + ') '
+                else:
+                    output += '(' + str(column.length) + ',' + str(column.precision) + ') '
+
+            if column.nullable == 'NO':
+                output += 'NOT NULL '
+            else:
+                output += 'NULL '
+
+            if end_flag == 0:
+                output += ',\n'
+            else:
+                output += ')\n'
+
+        return output
+
+class Column:
+    def __init__(self, name, datatype, length, precision, nullable, position):
+        self.column_name = name
+        self.data_type = datatype
+        if length == -1:
+            self.length = 'MAX'
+        else:
+            self.length = length
+        self.precision = precision
+        self.nullable = nullable
+        self.position = position
+
+class Procedure:
+    def __init__(self, name, text):
+        self.name = name
+        self.text = text
+
+    def buildCreateScript(self, users):
+        textString = "IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.ROUTINES\n\tWHERE ROUTINE_TYPE = 'PROCEDURE'\n\tAND ROUTINE_NAME = '" \
+                     + self.name + "'\n)\nBEGIN\n\tDROP PROCEDURE " + self.name + "\nEND\nGO\n\n"
+
+        textString += self.text
+
+        textString += "\n\nGRANT EXECUTE ON " + self.name + " TO " + ",".join(users) + "\nGO\n\n"
+
+        return textString
+
+users = ['WA_USER', 'AAD_USER']
+server1 = ''
+server2 = ''
+user1 = ''
+user2 = ''
+password1 = ''
+password2 = ''
+db1 = ''
+db2 = ''
+
+conn1 = pymssql.connect(server=server1, user=user1, password=password1, database=db1)
+cursor1 = conn1.cursor()
+
+conn2 = pymssql.connect(server=server2, user=user2, password=password2, database=db2)
+cursor2 = conn2.cursor()
+
+db1_tables = list()
+db2_tables = list()
+db1_tables_objs = {}
+db2_tables_objs = {}
+
+cursor1.execute('SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES;')
+for name in cursor1.fetchall():
+    db1_tables.append(name[0])
+
+cursor2.execute('SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES;')
+for name in cursor2.fetchall():
+    db2_tables.append(name[0])
+
+missing_tables = [x for x in db1_tables if x not in db2_tables]
+
+missing_tables_objs = {}
+
+for table in missing_tables:
+    columns = list()
+    cursor1.execute('SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, IS_NULLABLE, ORDINAL_POSITION FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = %s ORDER BY ORDINAL_POSITION ASC', table )
+    for row in cursor1.fetchall():
+        column = Column(row[0], row[1], row[2], row[3], row[4], row[5])
+        columns.append(column)
+
+    missing_tables_objs[table] = Table(table, columns)
+
+for table in missing_tables_objs.values():
+    print('--' + table.table_name)
+    print(table.buildCreateScript())
+
+db1_procedures = list()
+db2_procedures = list()
+db1_procedure_objs = {}
+db2_procedure_objs = {}
+
+obj_type = 'P'
+
+cursor1.execute('SELECT name FROM sys.objects WHERE type = %s', obj_type)
+for name in cursor1.fetchall():
+    db1_procedures.append(name[0])
+
+cursor2.execute('SELECT name FROM sys.objects WHERE type = %s', obj_type)
+for name in cursor2.fetchall():
+    db2_procedures.append(name[0])
+
+missing_procedures = [x for x in db1_procedures if x not in db2_procedures]
+
+missing_procedure_objs = {}
+
+for procedure in missing_procedures:
+    cursor1.execute('SELECT definition FROM sys.objects obj INNER JOIN sys.sql_modules sql ON obj.object_id = sql.object_id WHERE type = %s AND obj.name = %s', (obj_type, procedure))
+    text = cursor1.fetchall()[0][0]
+
+    missing_procedure_objs[procedure] = Procedure(procedure, text)
+
+for procedure in missing_procedure_objs.values():
+    print('--' + procedure.name)
+    print(procedure.buildCreateScript(users))
+
+conn1.close()
+conn2.close()
