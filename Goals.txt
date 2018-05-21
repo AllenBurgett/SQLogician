@@ -4,15 +4,19 @@
 	--database connections
 	--select objects to compare (allow for specific targeting of tables/procedures?)
 	--file-naming schema
+	--file selection screen
+	--(future maybe) visual comparison of the differences between the origin and destination
 
 --Backend Python
 	--separate out SQL object classes
 	--modularize each compare/generation for easier calling, dependent on the user's selection
 	--build function compare/generation
+	--build procedure/function compare if destionation procedure is not the same as the procedure/function at the origin
 	--figure out an elegant way to compare if two tables contain the same keys/defaults/contraints
 		--ensure that if one has a hash (because it was system generated) and the other does not, that the one with the manually defined name is used.
 	--If tables exist in the destination database, use alter scrips. Otherwise, build create scripts
 	--If procedures and functions exist, generate drop/create scrips
+	--GUI functionality  
 	--Research additional "gotchas"
 	--error handling
 	
